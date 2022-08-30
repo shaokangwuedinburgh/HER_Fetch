@@ -22,7 +22,7 @@ def launch(args):
     torch.manual_seed(args.seed)
     env_params = get_env_params(env)
     ddpg_trainer = DDPG(env_params, args, env)
-    # ddpg_trainer.learn()
+    ddpg_trainer.learn()
 
 
 if __name__ == '__main__':

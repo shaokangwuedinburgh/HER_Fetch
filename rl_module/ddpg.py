@@ -7,6 +7,10 @@ from rl_module.actor import Actor
 from rl_module.critic import Critic
 from rl_module.replay_buffer import replay_buffer
 from her_modules.her import her_sampler
+from datetime import datetime
+import logging
+
+logging.basicConfig(filename="/home/robot-learn/Desktop/HER_fetch/evaluation_results.log", filemode='w', level=logging.INFO)
 
 
 class DDPG(object):
@@ -26,75 +30,144 @@ class DDPG(object):
         self.action_bound = env_param["action_max"]
 
         self.device = args.device
-        self.actor.to(self.device)
-        self.target_actor.to(self.device)
-        self.critic.to(self.device)
-        self.target_critic.to(self.device)
         # replay_strategy, replay_k, reward_func=None
         self.her_module = her_sampler(self.args.replay_strategy, self.args.replay_k, self.env.compute_reward)
         # create the replay buffer
-        self.buffer = replay_buffer(self.env_params, self.args.buffer_size, self.her_module.sample_her_transitions)
+        self.buffer = replay_buffer(self.env_param, self.args, self.her_module.sample_her_transitions)
+        self.model_path = self.args.model_path
 
+    def concat_state_goal(self, obs, g):
 
-    def sample(self, sample_size):
-        samples = self.replay_bufer.sample(sample_size)
-        return samples
+        inputs = np.concatenate([obs, g])
+        inputs = torch.tensor(inputs, dtype=torch.float32).unsqueeze(0)
+        return inputs
 
-    def choose_action(self, observation, goal):
-        # state is a numpy array
-        state = np.concatenate([observation, goal])
-        staet_concat_goal = torch.DoubleTensor(state).reshape(1, -1).to(self.device)
+    def clip_obs_and_goal(self, o, g):
+        o = np.clip(o, -self.args.clip_obs, self.args.clip_obs)
+        g = np.clip(g, -self.args.clip_obs, self.args.clip_obs)
+        return o, g
 
-        action = self.actor(staet_concat_goal).detach().reshape(
-            -1)  # + torch.normal(mean=0., std=0.1, size=(1,))
-        # action = action.clamp(-self.action_bound, self.action_bound)
-        action = action.cpu().numpy()
-        action += 0.3 * 1 * np.random.randn(*action.shape)
-        action = np.clip(action, -1, 1)
+    def _select_actions(self, pi):
+        # add noise to the action to explore the environment
+        action = pi.cpu().numpy().squeeze()
+        # add the gaussian
+        action += self.args.noise_eps * self.env_param['action_max'] * np.random.randn(*action.shape)
+        action = np.clip(action, -self.env_param['action_max'], self.env_param['action_max'])
         # random actions...
-        random_actions = np.random.uniform(low=-1, high=1, \
-                                           size=4)
+        random_actions = np.random.uniform(low=-self.env_param['action_max'], high=self.env_param['action_max'], \
+                                           size=self.env_param['action'])
         # choose if use the random actions
-        action += np.random.binomial(1, 0.3, 1)[0] * (random_actions - action)
+        action += np.random.binomial(1, self.args.random_eps, 1)[0] * (random_actions - action)
         return action
 
-    def learn(self, transition):
+    def _soft_update_target_network(self, target_net, net):
+        for target_param, param in zip(target_net.parameters(), net.parameters()):
+            target_param.data.copy_(target_param.data * (1.0 - self.args.tau) + param.data * self.args.tau)
+
+    def learn(self):
         # start learning
-        for update_times in range(1):
-            # 先更新 critic
-            state = torch.from_numpy(transition["obs"]).to(self.device)
-            action = torch.from_numpy(transition["actions"]).to(self.device)
-            reward = torch.from_numpy(transition["reward"]).to(self.device)
-            next_state = torch.from_numpy(transition["next_obs"]).to(self.device)
-            goal = torch.from_numpy(transition["goal"]).to(self.device)
-            state_concat_goal = torch.concat([state, goal], dim=1).to(self.device)
+        for epoch in range(self.args.n_epoch):
+            for episode in range(self.args.n_episode):
+                ep_obs, ep_ag, ep_g, ep_action = [], [], [], []
+                observation = self.env.reset()
+                obs = observation["observation"]
+                ag = observation["achieved_goal"]
+                g = observation["desired_goal"]
+                for t in range(self.args.max_time_step):
+                    with torch.no_grad():
+                        out = self.concat_state_goal(obs, g)
+                        pi = self.actor(out)
+                        action = self._select_actions(pi)
+                        # env requires action to be numpy type
+                    observation, reward, done, info = self.env.step(action)
+                    ep_obs.append(obs.copy())
+                    ep_ag.append(ag.copy())
+                    ep_g.append(g.copy())
+                    ep_action.append(action.copy())
 
-            with torch.no_grad():
-                next_state_concat_goal = torch.concat([next_state, goal], dim=1).to(self.device)
-                next_action = self.target_actor(next_state_concat_goal)
-                target = reward + GAMMA * self.target_critic(next_state_concat_goal, next_action)
-            estimate = self.critic(state_concat_goal, action)
-            loss_q = F.mse_loss(estimate, target)
-            self.opt_critic.zero_grad()
-            loss_q.backward()
-            self.opt_critic.step()
+                    obs = observation["observation"]
+                    ag = observation["achieved_goal"]
 
-            # 再更新 actor
-            actor_action = self.actor(state_concat_goal)
-            goal = -torch.mean(self.critic(state_concat_goal, actor_action))
-            self.opt_actor.zero_grad()
-            goal.backward()
-            self.opt_actor.step()
+                ep_obs.append(obs)
+                ep_ag.append(ag)
+                trajectory = {"obs": np.array(ep_obs),
+                              "ag": np.array(ep_ag),
+                              "g": np.array(ep_g),
+                              "actions": np.array(ep_action)}
+                self.buffer.store_episode(trajectory)
 
-    def soft_update(self, target_net, net):
-        for target_param, param in zip(target_net.parameters(), net.parameters()):
-            target_param.data.copy_(target_param.data * (1.0 - TAU) + param.data * TAU)
+                for _ in range(self.args.update_times):
+                    self._update_network()
 
-        for target_param, param in zip(target_net.parameters(), net.parameters()):
-            target_param.data.copy_(target_param.data * (1.0 - TAU) + param.data * TAU)
+                if episode % self.args.update_times_target == 0:
+                    self._soft_update_target_network(self.target_actor, self.actor)
+                    self._soft_update_target_network(self.target_critic, self.critic)
+
+            success_rate = self._eval_agent()
+            print('[{}] epoch is: {}, eval success rate is: {:.3f}'.format(datetime.now(), epoch, success_rate))
+            logging.info('[{}] epoch is: {}, eval success rate is: {:.3f}'.format(datetime.now(), epoch, success_rate))
+            torch.save([self.actor.state_dict()], self.model_path + '/model.pt')
+    def _update_network(self):
+        transitions = self.buffer.sample(self.args.batch_size)
+        o, o_next, g = transitions['obs'], transitions['obs_next'], transitions['g']
+        transitions['obs'], transitions['g'] = self.clip_obs_and_goal(o, g)
+        transitions['obs_next'], transitions['g_next'] = self.clip_obs_and_goal(o_next, g)
+
+        inputs = np.concatenate([transitions['obs'], transitions['g']], axis=1)
+        inputs_next = np.concatenate([transitions['obs_next'], transitions['g_next']], axis=1)
+        # transfer them into the tensor
+        inputs_tensor = torch.tensor(inputs, dtype=torch.float32)
+        inputs_next_tensor = torch.tensor(inputs_next, dtype=torch.float32)
+        actions_tensor = torch.tensor(transitions['actions'], dtype=torch.float32)
+        r_tensor = torch.tensor(transitions['r'], dtype=torch.float32)
+        with torch.no_grad():
+            actions_next = self.target_actor(inputs_next_tensor)
+            q_next_value = self.target_critic(inputs_next_tensor, actions_next)
+            q_next_value = q_next_value.detach()
+            target_q_value = r_tensor + self.args.gamma * q_next_value
+            target_q_value = target_q_value.detach()
+            # clip the q value
+            clip_return = 1 / (1 - self.args.gamma)
+            target_q_value = torch.clamp(target_q_value, -clip_return, 0)
 
 
+        # the q loss
+        real_q_value = self.critic(inputs_tensor, actions_tensor)
+        critic_loss = (target_q_value - real_q_value).pow(2).mean()
+        # the actor loss
+        actions_real = self.actor(inputs_tensor)
+        actor_loss = -self.critic(inputs_tensor, actions_real).mean()
+        # start to update the network
+        self.opt_actor.zero_grad()
+        actor_loss.backward()
+        self.opt_actor.step()
+        # update the critic_network
+        self.opt_critic.zero_grad()
+        critic_loss.backward()
+        self.opt_critic.step()
 
+    def _eval_agent(self):
+        total_success_rate = []
+        for _ in range(10):
+            per_success_rate = []
+            observation = self.env.reset()
+            obs = observation['observation']
+            g = observation['desired_goal']
+            for _ in range(self.args.max_time_step):
+                # self.env.render()
+                with torch.no_grad():
+                    input_tensor = self.concat_state_goal(obs, g)
+                    pi = self.actor(input_tensor)
+                    # convert the actions
+                    actions = pi.detach().cpu().numpy().squeeze()
+                observation_new, _, _, info = self.env.step(actions)
+                obs = observation_new['observation']
+                g = observation_new['desired_goal']
+                per_success_rate.append(info['is_success'])
+            total_success_rate.append(per_success_rate)
+        total_success_rate = np.array(total_success_rate)
+        global_success_rate = np.mean(total_success_rate[:, -1])
+        return global_success_rate
 
 
 def save_torch_model(model, path):
