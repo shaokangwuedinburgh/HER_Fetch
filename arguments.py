@@ -28,6 +28,7 @@ def get_args():
                         help="the parameter alpha in adaptive noise (Section 3 trick)")
     parser.add_argument("--policy-beta", type=float, default=0.3,
                         help="the parameter beta in adaptive noise (Section 3 trick)")
+    parser.add_argument('--clip-range', type=float, default=5, help='the clip range')
 
     args = parser.parse_args()
     return args

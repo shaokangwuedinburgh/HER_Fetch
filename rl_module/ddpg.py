@@ -10,6 +10,9 @@ from her_modules.her import her_sampler
 from datetime import datetime
 import logging
 from torch.distributions import Normal
+from mpi_utils.mpi_utils import sync_networks, sync_grads
+from mpi_utils.normalizer import normalizer
+from mpi4py import MPI
 
 class DDPG(object):
     def __init__(self, env_param, args, environment):
@@ -21,6 +24,8 @@ class DDPG(object):
         self.target_actor = copy.deepcopy(self.actor)
         self.critic = Critic(env_param, args)
         self.target_critic = copy.deepcopy(self.critic)
+        sync_networks(self.actor)
+        sync_networks(self.critic)
 
         # self.replay_bufer = Replay_Buffer(max_buffer_size=replay_buffer_size)
         self.opt_actor = Adam(self.actor.parameters(), lr=args.lr_actor)
@@ -34,9 +39,17 @@ class DDPG(object):
         self.buffer = replay_buffer(self.env_param, self.args, self.her_module.sample_her_transitions)
         self.model_path = self.args.model_path
 
+        self.o_norm = normalizer(size=env_param['obs'], default_clip_range=self.args.clip_range)
+        self.g_norm = normalizer(size=env_param['goal'], default_clip_range=self.args.clip_range)
+
+
+
     def concat_state_goal(self, obs, g):
 
-        inputs = np.concatenate([obs, g])
+        obs_norm = self.o_norm.normalize(obs)
+        g_norm = self.g_norm.normalize(g)
+
+        inputs = np.concatenate([obs_norm, g_norm])
         inputs = torch.tensor(inputs, dtype=torch.float32).unsqueeze(0)
         return inputs
 
@@ -44,6 +57,33 @@ class DDPG(object):
         o = np.clip(o, -self.args.clip_obs, self.args.clip_obs)
         g = np.clip(g, -self.args.clip_obs, self.args.clip_obs)
         return o, g
+
+    def _update_normalizer(self, episode_batch):
+        mb_obs, mb_ag, mb_g, mb_actions = episode_batch
+        mb_obs_next = mb_obs[:, 1:, :]
+        mb_ag_next = mb_ag[:, 1:, :]
+        # get the number of normalization transitions
+        num_transitions = mb_actions.shape[1]
+        # create the new buffer to store them
+        buffer_temp = {'obs': mb_obs,
+                       'ag': mb_ag,
+                       'g': mb_g,
+                       'actions': mb_actions,
+                       'obs_next': mb_obs_next,
+                       'ag_next': mb_ag_next,
+                       }
+        transitions = self.her_module.sample_her_transitions(buffer_temp, num_transitions)
+        obs, g = transitions['obs'], transitions['g']
+        # pre process the obs and g
+        transitions['obs'], transitions['g'] = self.clip_obs_and_goal(obs, g)
+        # update
+        self.o_norm.update(transitions['obs'])
+        self.g_norm.update(transitions['g'])
+        # recompute the stats
+        self.o_norm.recompute_stats()
+        self.g_norm.recompute_stats()
+
+
 
     def _select_actions(self, pi, success_rate):
         # add noise to the action to explore the environment
@@ -105,11 +145,12 @@ class DDPG(object):
 
                 ep_obs.append(obs)
                 ep_ag.append(ag)
-                trajectory = {"obs": np.array(ep_obs),
-                              "ag": np.array(ep_ag),
-                              "g": np.array(ep_g),
-                              "actions": np.array(ep_action)}
+                trajectory = {"obs": np.array([ep_obs]),
+                              "ag": np.array([ep_ag]),
+                              "g": np.array([ep_g]),
+                              "actions": np.array([ep_action])}
                 self.buffer.store_episode(trajectory)
+                self._update_normalizer([trajectory["obs"], trajectory["ag"], trajectory["g"], trajectory["actions"]])
 
                 for _ in range(self.args.update_times):
                     self._update_network()
@@ -119,19 +160,26 @@ class DDPG(object):
                     self._soft_update_target_network(self.target_critic, self.critic)
 
             success_rate = self._eval_agent()
-            print('[{}] epoch is: {}, eval success rate is: {:.3f}'.format(datetime.now(), epoch, success_rate))
-            torch.save([self.actor.state_dict()], self.model_path + '/model.pt')
+            if MPI.COMM_WORLD.Get_rank() == 0:
+                print('[{}] epoch is: {}, eval success rate is: {:.3f}'.format(datetime.now(), epoch, success_rate))
+                torch.save([self.actor.state_dict()], self.model_path + '/model.pt')
     def _update_network(self):
         transitions = self.buffer.sample(self.args.batch_size)
         o, o_next, g = transitions['obs'], transitions['obs_next'], transitions['g']
         transitions['obs'], transitions['g'] = self.clip_obs_and_goal(o, g)
         transitions['obs_next'], transitions['g_next'] = self.clip_obs_and_goal(o_next, g)
 
-        inputs = np.concatenate([transitions['obs'], transitions['g']], axis=1)
-        inputs_next = np.concatenate([transitions['obs_next'], transitions['g_next']], axis=1)
+        obs_norm = self.o_norm.normalize(transitions['obs'])
+        g_norm = self.g_norm.normalize(transitions['g'])
+        inputs_norm = np.concatenate([obs_norm, g_norm], axis=1)
+        obs_next_norm = self.o_norm.normalize(transitions['obs_next'])
+        g_next_norm = self.g_norm.normalize(transitions['g_next'])
+        inputs_next_norm = np.concatenate([obs_next_norm, g_next_norm], axis=1)
+
+
         # transfer them into the tensor
-        inputs_tensor = torch.tensor(inputs, dtype=torch.float32)
-        inputs_next_tensor = torch.tensor(inputs_next, dtype=torch.float32)
+        inputs_tensor = torch.tensor(inputs_norm, dtype=torch.float32)
+        inputs_next_tensor = torch.tensor(inputs_next_norm, dtype=torch.float32)
         actions_tensor = torch.tensor(transitions['actions'], dtype=torch.float32)
         r_tensor = torch.tensor(transitions['r'], dtype=torch.float32)
         with torch.no_grad():
@@ -151,13 +199,17 @@ class DDPG(object):
         # the actor loss
         actions_real = self.actor(inputs_tensor)
         actor_loss = -self.critic(inputs_tensor, actions_real).mean()
+
         # start to update the network
         self.opt_actor.zero_grad()
         actor_loss.backward()
+        sync_grads(self.actor)
         self.opt_actor.step()
+
         # update the critic_network
         self.opt_critic.zero_grad()
         critic_loss.backward()
+        sync_grads(self.critic)
         self.opt_critic.step()
 
     def _eval_agent(self):
@@ -180,9 +232,6 @@ class DDPG(object):
                 per_success_rate.append(info['is_success'])
             total_success_rate.append(per_success_rate)
         total_success_rate = np.array(total_success_rate)
-        global_success_rate = np.mean(total_success_rate[:, -1])
-        return global_success_rate
-
-
-def save_torch_model(model, path):
-    torch.save(model.state_dict(), path)
+        local_success_rate = np.mean(total_success_rate[:, -1])
+        global_success_rate = MPI.COMM_WORLD.allreduce(local_success_rate, op=MPI.SUM)
+        return global_success_rate / MPI.COMM_WORLD.Get_size()
