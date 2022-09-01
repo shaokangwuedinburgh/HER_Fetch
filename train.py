@@ -3,6 +3,7 @@ import gym
 import numpy as np
 import random
 import torch
+from mpi4py import MPI
 import gym_robotics.envs as environment
 from arguments import get_args
 from rl_module.ddpg import DDPG
@@ -15,7 +16,7 @@ def get_env_params(env):
     return params
 
 def launch(args):
-    env = environment.FetchReachEnv()
+    env = environment.FetchPushEnv()
     env.seed(args.seed)
     random.seed(args.seed)
     np.random.seed(args.seed)

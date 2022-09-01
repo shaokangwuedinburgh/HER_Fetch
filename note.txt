@@ -1,0 +1,7 @@
+the push experiments were failed. Its performance does not improve
+
+I guess there are several reasons account for the the failure:
+
+1. For the evalution part. I only use the success rate of 10 episodes to determine the adaptive noise. But in another experiment without adaptive noise, the experiment also fails. Why?
+
+	can I solve it by adding MPI to it? or adding norm method to it?

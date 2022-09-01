@@ -24,6 +24,10 @@ def get_args():
     parser.add_argument("--noise-eps", type=float, default=0.2, help="noise eps")
     parser.add_argument("--random-eps", type=float, default=0.3, help="noise eps")
     parser.add_argument("--model-path", type=str, default="saved_models", help="saved model path")
+    parser.add_argument("--policy-alpha", type=float, default=0.8,
+                        help="the parameter alpha in adaptive noise (Section 3 trick)")
+    parser.add_argument("--policy-beta", type=float, default=0.3,
+                        help="the parameter beta in adaptive noise (Section 3 trick)")
 
     args = parser.parse_args()
     return args

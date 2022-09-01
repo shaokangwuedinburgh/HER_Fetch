@@ -1,0 +1,14 @@
+[2022-09-01 12:09:10.956825] epoch is: 0, eval success rate is: 0.000
+[2022-09-01 12:09:24.323358] epoch is: 1, eval success rate is: 0.000
+[2022-09-01 12:09:37.729648] epoch is: 2, eval success rate is: 0.000
+[2022-09-01 12:09:51.311974] epoch is: 3, eval success rate is: 0.000
+[2022-09-01 12:10:04.978267] epoch is: 4, eval success rate is: 0.000
+[2022-09-01 12:10:18.711648] epoch is: 5, eval success rate is: 0.000
+[2022-09-01 12:10:32.256544] epoch is: 6, eval success rate is: 0.000
+[2022-09-01 12:10:45.526990] epoch is: 7, eval success rate is: 1.000
+[2022-09-01 12:10:59.047727] epoch is: 8, eval success rate is: 1.000
+[2022-09-01 12:11:12.345057] epoch is: 9, eval success rate is: 1.000
+[2022-09-01 12:11:25.691685] epoch is: 10, eval success rate is: 1.000
+[2022-09-01 12:11:39.108876] epoch is: 11, eval success rate is: 1.000
+[2022-09-01 12:11:52.846355] epoch is: 12, eval success rate is: 1.000
+[2022-09-01 12:12:06.546259] epoch is: 13, eval success rate is: 1.000

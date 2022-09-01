@@ -9,9 +9,7 @@ from rl_module.replay_buffer import replay_buffer
 from her_modules.her import her_sampler
 from datetime import datetime
 import logging
-
-logging.basicConfig(filename="/home/robot-learn/Desktop/HER_fetch/evaluation_results.log", filemode='w', level=logging.INFO)
-
+from torch.distributions import Normal
 
 class DDPG(object):
     def __init__(self, env_param, args, environment):
@@ -47,7 +45,7 @@ class DDPG(object):
         g = np.clip(g, -self.args.clip_obs, self.args.clip_obs)
         return o, g
 
-    def _select_actions(self, pi):
+    def _select_actions(self, pi, success_rate):
         # add noise to the action to explore the environment
         action = pi.cpu().numpy().squeeze()
         # add the gaussian
@@ -58,6 +56,22 @@ class DDPG(object):
                                            size=self.env_param['action'])
         # choose if use the random actions
         action += np.random.binomial(1, self.args.random_eps, 1)[0] * (random_actions - action)
+
+        # the adaptive noise is added after the constant noise
+        # def adaptive_noise(success_rate):
+        #     q_success_rate = np.clip(self.args.policy_alpha - success_rate, self.args.policy_beta,
+        #                              self.args.policy_alpha)
+        #     mu, sigma = 0, 1
+        #     probability = Normal(mu, sigma)
+        #     noise = probability.sample([4])
+        #     action_noise = q_success_rate * self.env_param["action_max"] * noise
+        #     action_noise = action_noise.numpy()
+        #     return action_noise
+        #
+        # action_noise = adaptive_noise(success_rate)
+        # action += action_noise
+        # action = np.clip(action, -self.env_param['action_max'], self.env_param['action_max'])
+
         return action
 
     def _soft_update_target_network(self, target_net, net):
@@ -66,6 +80,7 @@ class DDPG(object):
 
     def learn(self):
         # start learning
+        success_rate = 0
         for epoch in range(self.args.n_epoch):
             for episode in range(self.args.n_episode):
                 ep_obs, ep_ag, ep_g, ep_action = [], [], [], []
@@ -77,7 +92,7 @@ class DDPG(object):
                     with torch.no_grad():
                         out = self.concat_state_goal(obs, g)
                         pi = self.actor(out)
-                        action = self._select_actions(pi)
+                        action = self._select_actions(pi, success_rate)
                         # env requires action to be numpy type
                     observation, reward, done, info = self.env.step(action)
                     ep_obs.append(obs.copy())
@@ -105,7 +120,6 @@ class DDPG(object):
 
             success_rate = self._eval_agent()
             print('[{}] epoch is: {}, eval success rate is: {:.3f}'.format(datetime.now(), epoch, success_rate))
-            logging.info('[{}] epoch is: {}, eval success rate is: {:.3f}'.format(datetime.now(), epoch, success_rate))
             torch.save([self.actor.state_dict()], self.model_path + '/model.pt')
     def _update_network(self):
         transitions = self.buffer.sample(self.args.batch_size)
