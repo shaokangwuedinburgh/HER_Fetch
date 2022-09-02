@@ -10,6 +10,8 @@ from datetime import datetime
 from torch.distributions import Normal
 from mpi_utils.mpi_utils import sync_networks, sync_grads
 from mpi4py import MPI
+from mpi_utils.normalizer import normalizer
+
 
 class DDPG(object):
     def __init__(self, env_param, args, environment):
@@ -36,6 +38,9 @@ class DDPG(object):
         self.buffer = replay_buffer(self.env_param, self.args, self.her_module.sample_her_transitions)
         self.model_path = self.args.model_path
 
+        self.o_norm = normalizer(size=env_param['obs'], default_clip_range=self.args.clip_range)
+        self.g_norm = normalizer(size=env_param['goal'], default_clip_range=self.args.clip_range)
+
         # try to track the loss
         self.track_critic_loss = np.zeros([self.args.n_epoch, self.args.n_episode])
         self.track_actor_loss = np.zeros([self.args.n_epoch, self.args.n_episode])
@@ -44,7 +49,9 @@ class DDPG(object):
 
 
     def concat_state_goal(self, obs, g):
-        inputs = np.concatenate([obs, g])
+        obs_norm = self.o_norm.normalize(obs)
+        g_norm = self.g_norm.normalize(g)
+        inputs = np.concatenate([obs_norm, g_norm])
         inputs = torch.tensor(inputs, dtype=torch.float32).unsqueeze(0)
         return inputs
 
@@ -82,6 +89,31 @@ class DDPG(object):
         action = np.clip(action, -self.env_param['action_max'], self.env_param['action_max'])
 
         return action
+
+    def _update_normalizer(self, episode_batch):
+        mb_obs, mb_ag, mb_g, mb_actions = episode_batch
+        mb_obs_next = mb_obs[:, 1:, :]
+        mb_ag_next = mb_ag[:, 1:, :]
+        # get the number of normalization transitions
+        num_transitions = mb_actions.shape[1]
+        # create the new buffer to store them
+        buffer_temp = {'obs': mb_obs,
+                       'ag': mb_ag,
+                       'g': mb_g,
+                       'actions': mb_actions,
+                       'obs_next': mb_obs_next,
+                       'ag_next': mb_ag_next,
+                       }
+        transitions = self.her_module.sample_her_transitions(buffer_temp, num_transitions)
+        obs, g = transitions['obs'], transitions['g']
+        # pre process the obs and g
+        transitions['obs'], transitions['g'] = self.clip_obs_and_goal(obs, g)
+        # update
+        self.o_norm.update(transitions['obs'])
+        self.g_norm.update(transitions['g'])
+        # recompute the stats
+        self.o_norm.recompute_stats()
+        self.g_norm.recompute_stats()
 
     def _soft_update_target_network(self, target_net, net):
         for target_param, param in zip(target_net.parameters(), net.parameters()):
@@ -123,7 +155,7 @@ class DDPG(object):
                               "g": np.array([ep_g]),
                               "actions": np.array([ep_action])}
                 self.buffer.store_episode(trajectory)
-
+                self._update_normalizer([trajectory["obs"], trajectory["ag"], trajectory["g"], trajectory["actions"]])
                 self.temp1 = 0.0
                 self.temp2 = 0.0
                 for _ in range(self.args.update_times):
@@ -149,18 +181,21 @@ class DDPG(object):
         transitions['obs'], transitions['g'] = self.clip_obs_and_goal(o, g)
         transitions['obs_next'], transitions['g_next'] = self.clip_obs_and_goal(o_next, g)
 
-        inputs = np.concatenate([transitions['obs'], transitions['g']], axis=1)
-        inputs_next = np.concatenate([transitions['obs_next'], transitions['g_next']], axis=1)
-
-
+        obs_norm = self.o_norm.normalize(transitions['obs'])
+        g_norm = self.g_norm.normalize(transitions['g'])
+        inputs_norm = np.concatenate([obs_norm, g_norm], axis=1)
+        obs_next_norm = self.o_norm.normalize(transitions['obs_next'])
+        g_next_norm = self.g_norm.normalize(transitions['g_next'])
+        inputs_next_norm = np.concatenate([obs_next_norm, g_next_norm], axis=1)
         # transfer them into the tensor
-        inputs_tensor = torch.tensor(inputs, dtype=torch.float32)
-        inputs_next_tensor = torch.tensor(inputs_next, dtype=torch.float32)
+        inputs_norm_tensor = torch.tensor(inputs_norm, dtype=torch.float32)
+        inputs_next_norm_tensor = torch.tensor(inputs_next_norm, dtype=torch.float32)
         actions_tensor = torch.tensor(transitions['actions'], dtype=torch.float32)
         r_tensor = torch.tensor(transitions['r'], dtype=torch.float32)
+
         with torch.no_grad():
-            actions_next = self.target_actor(inputs_next_tensor)
-            q_next_value = self.target_critic(inputs_next_tensor, actions_next)
+            actions_next = self.target_actor(inputs_next_norm_tensor)
+            q_next_value = self.target_critic(inputs_next_norm_tensor, actions_next)
             q_next_value = q_next_value.detach()
             target_q_value = r_tensor + self.args.gamma * q_next_value
             target_q_value = target_q_value.detach()
@@ -170,11 +205,11 @@ class DDPG(object):
 
 
         # the q loss
-        real_q_value = self.critic(inputs_tensor, actions_tensor)
+        real_q_value = self.critic(inputs_norm_tensor, actions_tensor)
         critic_loss = (target_q_value - real_q_value).pow(2).mean()
         # the actor loss
-        actions_real = self.actor(inputs_tensor)
-        actor_loss = -self.critic(inputs_tensor, actions_real).mean()
+        actions_real = self.actor(inputs_norm_tensor)
+        actor_loss = -self.critic(inputs_norm_tensor, actions_real).mean()
 
         if MPI.COMM_WORLD.Get_rank() == 0:
             self.temp1 += actor_loss.cpu().detach().data
