@@ -29,6 +29,7 @@ def get_args():
     parser.add_argument("--policy-beta", type=float, default=0.3,
                         help="the parameter beta in adaptive noise (Section 3 trick)")
     parser.add_argument('--clip-range', type=float, default=5, help='the clip range')
+    parser.add_argument("--save-train-loss-path", type=str, default="saved_loss", help="saved training loss path")
 
     args = parser.parse_args()
     return args

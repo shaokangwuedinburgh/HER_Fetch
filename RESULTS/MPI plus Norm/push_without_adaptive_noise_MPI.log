@@ -1,0 +1,66 @@
+/home/robot-learn/anaconda3/envs/mujoco/lib/python3.7/site-packages/gym/core.py:257: DeprecationWarning: [33mWARN: Function `env.seed(seed)` is marked as deprecated and will be removed in the future. Please use `env.reset(seed=seed)` instead.[0m
+  "Function `env.seed(seed)` is marked as deprecated and will be removed in the future. "
+/home/robot-learn/anaconda3/envs/mujoco/lib/python3.7/site-packages/gym/core.py:257: DeprecationWarning: [33mWARN: Function `env.seed(seed)` is marked as deprecated and will be removed in the future. Please use `env.reset(seed=seed)` instead.[0m
+  "Function `env.seed(seed)` is marked as deprecated and will be removed in the future. "
+/home/robot-learn/anaconda3/envs/mujoco/lib/python3.7/site-packages/gym/core.py:257: DeprecationWarning: [33mWARN: Function `env.seed(seed)` is marked as deprecated and will be removed in the future. Please use `env.reset(seed=seed)` instead.[0m
+  "Function `env.seed(seed)` is marked as deprecated and will be removed in the future. "
+/home/robot-learn/anaconda3/envs/mujoco/lib/python3.7/site-packages/gym/core.py:257: DeprecationWarning: [33mWARN: Function `env.seed(seed)` is marked as deprecated and will be removed in the future. Please use `env.reset(seed=seed)` instead.[0m
+  "Function `env.seed(seed)` is marked as deprecated and will be removed in the future. "
+/home/robot-learn/anaconda3/envs/mujoco/lib/python3.7/site-packages/gym/core.py:257: DeprecationWarning: [33mWARN: Function `env.seed(seed)` is marked as deprecated and will be removed in the future. Please use `env.reset(seed=seed)` instead.[0m
+  "Function `env.seed(seed)` is marked as deprecated and will be removed in the future. "
+/home/robot-learn/anaconda3/envs/mujoco/lib/python3.7/site-packages/gym/core.py:257: DeprecationWarning: [33mWARN: Function `env.seed(seed)` is marked as deprecated and will be removed in the future. Please use `env.reset(seed=seed)` instead.[0m
+  "Function `env.seed(seed)` is marked as deprecated and will be removed in the future. "
+/home/robot-learn/anaconda3/envs/mujoco/lib/python3.7/site-packages/gym/core.py:257: DeprecationWarning: [33mWARN: Function `env.seed(seed)` is marked as deprecated and will be removed in the future. Please use `env.reset(seed=seed)` instead.[0m
+  "Function `env.seed(seed)` is marked as deprecated and will be removed in the future. "
+/home/robot-learn/anaconda3/envs/mujoco/lib/python3.7/site-packages/gym/core.py:257: DeprecationWarning: [33mWARN: Function `env.seed(seed)` is marked as deprecated and will be removed in the future. Please use `env.reset(seed=seed)` instead.[0m
+  "Function `env.seed(seed)` is marked as deprecated and will be removed in the future. "
+[2022-09-01 15:03:15.156788] epoch is: 0, eval success rate is: 0.013
+[2022-09-01 15:04:03.182225] epoch is: 1, eval success rate is: 0.025
+[2022-09-01 15:04:52.427286] epoch is: 2, eval success rate is: 0.062
+[2022-09-01 15:05:40.693025] epoch is: 3, eval success rate is: 0.050
+[2022-09-01 15:06:28.392157] epoch is: 4, eval success rate is: 0.100
+[2022-09-01 15:07:16.050749] epoch is: 5, eval success rate is: 0.087
+[2022-09-01 15:08:03.971132] epoch is: 6, eval success rate is: 0.175
+[2022-09-01 15:08:51.752414] epoch is: 7, eval success rate is: 0.100
+[2022-09-01 15:09:39.568610] epoch is: 8, eval success rate is: 0.263
+[2022-09-01 15:10:27.292244] epoch is: 9, eval success rate is: 0.288
+[2022-09-01 15:11:15.316079] epoch is: 10, eval success rate is: 0.413
+[2022-09-01 15:12:04.270375] epoch is: 11, eval success rate is: 0.525
+[2022-09-01 15:12:53.421806] epoch is: 12, eval success rate is: 0.650
+[2022-09-01 15:13:42.367454] epoch is: 13, eval success rate is: 0.763
+[2022-09-01 15:14:30.715540] epoch is: 14, eval success rate is: 0.863
+[2022-09-01 15:15:19.134423] epoch is: 15, eval success rate is: 0.887
+[2022-09-01 15:16:08.017096] epoch is: 16, eval success rate is: 0.925
+[2022-09-01 15:16:56.778546] epoch is: 17, eval success rate is: 0.925
+[2022-09-01 15:17:45.937671] epoch is: 18, eval success rate is: 0.962
+[2022-09-01 15:18:34.572993] epoch is: 19, eval success rate is: 0.950
+[2022-09-01 15:19:23.043130] epoch is: 20, eval success rate is: 0.962
+[2022-09-01 15:20:10.987187] epoch is: 21, eval success rate is: 0.975
+[2022-09-01 15:20:59.333765] epoch is: 22, eval success rate is: 0.988
+[2022-09-01 15:21:47.680543] epoch is: 23, eval success rate is: 0.962
+[2022-09-01 15:22:35.835322] epoch is: 24, eval success rate is: 0.988
+[2022-09-01 15:23:24.045800] epoch is: 25, eval success rate is: 0.975
+[2022-09-01 15:24:12.283720] epoch is: 26, eval success rate is: 0.975
+[2022-09-01 15:25:00.316731] epoch is: 27, eval success rate is: 0.962
+[2022-09-01 15:25:49.229666] epoch is: 28, eval success rate is: 0.988
+[2022-09-01 15:26:38.778180] epoch is: 29, eval success rate is: 0.988
+[2022-09-01 15:27:28.132742] epoch is: 30, eval success rate is: 1.000
+[2022-09-01 15:28:16.499660] epoch is: 31, eval success rate is: 0.975
+[2022-09-01 15:29:05.014357] epoch is: 32, eval success rate is: 0.988
+[2022-09-01 15:29:53.626778] epoch is: 33, eval success rate is: 0.975
+[2022-09-01 15:30:42.524862] epoch is: 34, eval success rate is: 0.962
+[2022-09-01 15:31:31.460940] epoch is: 35, eval success rate is: 1.000
+[2022-09-01 15:32:20.545968] epoch is: 36, eval success rate is: 1.000
+[2022-09-01 15:33:09.597746] epoch is: 37, eval success rate is: 0.962
+[2022-09-01 15:33:58.726949] epoch is: 38, eval success rate is: 0.962
+[2022-09-01 15:34:47.922860] epoch is: 39, eval success rate is: 0.962
+[2022-09-01 15:35:37.698445] epoch is: 40, eval success rate is: 0.988
+[2022-09-01 15:36:27.584119] epoch is: 41, eval success rate is: 0.988
+[2022-09-01 15:37:17.814838] epoch is: 42, eval success rate is: 0.975
+[2022-09-01 15:38:07.953120] epoch is: 43, eval success rate is: 0.975
+[2022-09-01 15:38:58.248800] epoch is: 44, eval success rate is: 1.000
+[2022-09-01 15:39:47.525102] epoch is: 45, eval success rate is: 0.988
+[2022-09-01 15:40:36.665055] epoch is: 46, eval success rate is: 0.988
+[2022-09-01 15:41:25.948884] epoch is: 47, eval success rate is: 0.975
+[2022-09-01 15:42:15.385961] epoch is: 48, eval success rate is: 1.000
+[2022-09-01 15:43:04.728043] epoch is: 49, eval success rate is: 0.988

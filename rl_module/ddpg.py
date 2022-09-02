@@ -36,6 +36,12 @@ class DDPG(object):
         self.buffer = replay_buffer(self.env_param, self.args, self.her_module.sample_her_transitions)
         self.model_path = self.args.model_path
 
+        # try to track the loss
+        self.track_critic_loss = np.zeros([self.args.n_epoch, self.args.n_episode])
+        self.track_actor_loss = np.zeros([self.args.n_epoch, self.args.n_episode])
+        self.temp1 = 0
+        self.temp2 = 0
+
 
     def concat_state_goal(self, obs, g):
         inputs = np.concatenate([obs, g])
@@ -81,6 +87,10 @@ class DDPG(object):
         for target_param, param in zip(target_net.parameters(), net.parameters()):
             target_param.data.copy_(target_param.data * (1.0 - self.args.tau) + param.data * self.args.tau)
 
+    def save_training_loss(self):
+        np.save(self.args.save_train_loss_path + "/actor", self.track_actor_loss)
+        np.save(self.args.save_train_loss_path + "/critic", self.track_critic_loss)
+
     def learn(self):
         # start learning
         success_rate = 0
@@ -114,8 +124,14 @@ class DDPG(object):
                               "actions": np.array([ep_action])}
                 self.buffer.store_episode(trajectory)
 
+                self.temp1 = 0.0
+                self.temp2 = 0.0
                 for _ in range(self.args.update_times):
                     self._update_network()
+                self.temp1 = self.temp1 / self.args.update_times
+                self.temp2 = self.temp2 / self.args.update_times
+                self.track_actor_loss[epoch, episode] = self.temp1
+                self.track_critic_loss[epoch, episode] = self.temp2
 
                 if episode % self.args.update_times_target == 0:
                     self._soft_update_target_network(self.target_actor, self.actor)
@@ -125,6 +141,8 @@ class DDPG(object):
             if MPI.COMM_WORLD.Get_rank() == 0:
                 print('[{}] epoch is: {}, eval success rate is: {:.3f}'.format(datetime.now(), epoch, success_rate))
                 torch.save([self.actor.state_dict()], self.model_path + '/model.pt')
+        if MPI.COMM_WORLD.Get_rank() == 0:
+            self.save_training_loss()
     def _update_network(self):
         transitions = self.buffer.sample(self.args.batch_size)
         o, o_next, g = transitions['obs'], transitions['obs_next'], transitions['g']
@@ -157,6 +175,10 @@ class DDPG(object):
         # the actor loss
         actions_real = self.actor(inputs_tensor)
         actor_loss = -self.critic(inputs_tensor, actions_real).mean()
+
+        if MPI.COMM_WORLD.Get_rank() == 0:
+            self.temp1 += actor_loss.cpu().detach().data
+            self.temp2 += critic_loss.cpu().detach().data
 
         # start to update the network
         self.opt_actor.zero_grad()
