@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-import torch.nn.functional as F
 from torch.optim import Adam
 import copy
 from rl_module.actor import Actor
@@ -8,10 +7,8 @@ from rl_module.critic import Critic
 from rl_module.replay_buffer import replay_buffer
 from her_modules.her import her_sampler
 from datetime import datetime
-import logging
 from torch.distributions import Normal
 from mpi_utils.mpi_utils import sync_networks, sync_grads
-from mpi_utils.normalizer import normalizer
 from mpi4py import MPI
 
 class DDPG(object):
@@ -39,17 +36,9 @@ class DDPG(object):
         self.buffer = replay_buffer(self.env_param, self.args, self.her_module.sample_her_transitions)
         self.model_path = self.args.model_path
 
-        self.o_norm = normalizer(size=env_param['obs'], default_clip_range=self.args.clip_range)
-        self.g_norm = normalizer(size=env_param['goal'], default_clip_range=self.args.clip_range)
-
-
 
     def concat_state_goal(self, obs, g):
-
-        obs_norm = self.o_norm.normalize(obs)
-        g_norm = self.g_norm.normalize(g)
-
-        inputs = np.concatenate([obs_norm, g_norm])
+        inputs = np.concatenate([obs, g])
         inputs = torch.tensor(inputs, dtype=torch.float32).unsqueeze(0)
         return inputs
 
@@ -57,32 +46,6 @@ class DDPG(object):
         o = np.clip(o, -self.args.clip_obs, self.args.clip_obs)
         g = np.clip(g, -self.args.clip_obs, self.args.clip_obs)
         return o, g
-
-    def _update_normalizer(self, episode_batch):
-        mb_obs, mb_ag, mb_g, mb_actions = episode_batch
-        mb_obs_next = mb_obs[:, 1:, :]
-        mb_ag_next = mb_ag[:, 1:, :]
-        # get the number of normalization transitions
-        num_transitions = mb_actions.shape[1]
-        # create the new buffer to store them
-        buffer_temp = {'obs': mb_obs,
-                       'ag': mb_ag,
-                       'g': mb_g,
-                       'actions': mb_actions,
-                       'obs_next': mb_obs_next,
-                       'ag_next': mb_ag_next,
-                       }
-        transitions = self.her_module.sample_her_transitions(buffer_temp, num_transitions)
-        obs, g = transitions['obs'], transitions['g']
-        # pre process the obs and g
-        transitions['obs'], transitions['g'] = self.clip_obs_and_goal(obs, g)
-        # update
-        self.o_norm.update(transitions['obs'])
-        self.g_norm.update(transitions['g'])
-        # recompute the stats
-        self.o_norm.recompute_stats()
-        self.g_norm.recompute_stats()
-
 
 
     def _select_actions(self, pi, success_rate):
@@ -98,19 +61,19 @@ class DDPG(object):
         action += np.random.binomial(1, self.args.random_eps, 1)[0] * (random_actions - action)
 
         # the adaptive noise is added after the constant noise
-        # def adaptive_noise(success_rate):
-        #     q_success_rate = np.clip(self.args.policy_alpha - success_rate, self.args.policy_beta,
-        #                              self.args.policy_alpha)
-        #     mu, sigma = 0, 1
-        #     probability = Normal(mu, sigma)
-        #     noise = probability.sample([4])
-        #     action_noise = q_success_rate * self.env_param["action_max"] * noise
-        #     action_noise = action_noise.numpy()
-        #     return action_noise
-        #
-        # action_noise = adaptive_noise(success_rate)
-        # action += action_noise
-        # action = np.clip(action, -self.env_param['action_max'], self.env_param['action_max'])
+        def adaptive_noise(success_rate):
+            q_success_rate = np.clip(self.args.policy_alpha - success_rate, self.args.policy_beta,
+                                     self.args.policy_alpha)
+            mu, sigma = 0, 1
+            probability = Normal(mu, sigma)
+            noise = probability.sample([4])
+            action_noise = q_success_rate * self.env_param["action_max"] * noise
+            action_noise = action_noise.numpy()
+            return action_noise
+
+        action_noise = adaptive_noise(success_rate)
+        action += action_noise
+        action = np.clip(action, -self.env_param['action_max'], self.env_param['action_max'])
 
         return action
 
@@ -150,7 +113,6 @@ class DDPG(object):
                               "g": np.array([ep_g]),
                               "actions": np.array([ep_action])}
                 self.buffer.store_episode(trajectory)
-                self._update_normalizer([trajectory["obs"], trajectory["ag"], trajectory["g"], trajectory["actions"]])
 
                 for _ in range(self.args.update_times):
                     self._update_network()
@@ -169,17 +131,13 @@ class DDPG(object):
         transitions['obs'], transitions['g'] = self.clip_obs_and_goal(o, g)
         transitions['obs_next'], transitions['g_next'] = self.clip_obs_and_goal(o_next, g)
 
-        obs_norm = self.o_norm.normalize(transitions['obs'])
-        g_norm = self.g_norm.normalize(transitions['g'])
-        inputs_norm = np.concatenate([obs_norm, g_norm], axis=1)
-        obs_next_norm = self.o_norm.normalize(transitions['obs_next'])
-        g_next_norm = self.g_norm.normalize(transitions['g_next'])
-        inputs_next_norm = np.concatenate([obs_next_norm, g_next_norm], axis=1)
+        inputs = np.concatenate([transitions['obs'], transitions['g']], axis=1)
+        inputs_next = np.concatenate([transitions['obs_next'], transitions['g_next']], axis=1)
 
 
         # transfer them into the tensor
-        inputs_tensor = torch.tensor(inputs_norm, dtype=torch.float32)
-        inputs_next_tensor = torch.tensor(inputs_next_norm, dtype=torch.float32)
+        inputs_tensor = torch.tensor(inputs, dtype=torch.float32)
+        inputs_next_tensor = torch.tensor(inputs_next, dtype=torch.float32)
         actions_tensor = torch.tensor(transitions['actions'], dtype=torch.float32)
         r_tensor = torch.tensor(transitions['r'], dtype=torch.float32)
         with torch.no_grad():
